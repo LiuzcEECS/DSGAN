@@ -101,7 +101,8 @@ class CoGAN(object):
 
     #generator, concatenate depth and semantics
     self.G1, self.G2 = self.generator(self.real_rgb_images, name = 'G')
-    self.G = tf.concat([self.G1, self.G2], 3)
+    #self.G = tf.concat([self.G1, self.G2], 3)
+    self.G = tf.concat([self.G1, tf.cast(tf.expand_dims(tf.argmax(self.G2, axis = 3), axis = 3), tf.float32)], 3)
 
     #input real image pairs
     self.D, self.D_logits = self.discriminator(self.real_depth_semantic_images, reuse = False, name = 'D')
@@ -132,9 +133,10 @@ class CoGAN(object):
     #generator loss
     self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
         labels=tf.ones_like(self.D_)*soft_max_label, logits=self.D_logits_)) \
-    + self.L1_lambda * ( tf.reduce_mean(tf.abs(self.real_depth_images - self.G1)) \
-    + tf.reduce_mean(tf.abs(self.real_semantic_images - self.G2))  )
-    
+    + self.L1_lambda * ( tf.reduce_mean(tf.abs(self.real_depth_images - self.G1))) \
+    + tf.nn.sparse_softmax_cross_entropy_with_logits(labels = tf.reshape(tf.cast(self.real_semantic_images, tf.int32), [-1, self.crop_height * self.crop_width]),
+    logits = tf.reshape(self.G2, [-1,self.crop_height * self.crop_width, 40]))
+
     self.d_loss_real_sum = tf.summary.scalar("d_loss_real", self.d_loss_real)
     self.d_loss_fake_sum = tf.summary.scalar("d_loss_fake", self.d_loss_fake)
     self.g_loss_sum = tf.summary.scalar("g_loss", self.g_loss)
@@ -148,50 +150,6 @@ class CoGAN(object):
     # print("Discriminator variable {}".format([v.op.name for v in self.d_vars]))
     self.saver = tf.train.Saver()
 
-
-  def test(self, data, config):
-    for idx in xrange(0, 1400):
-      RGB_sample_images = get_RGB_batch(batch_file = data, 
-                                        start_idx = idx*config.batch_size, 
-                                        end_idx = (idx+1)*config.batch_size, 
-                                        input_height = self.input_height, 
-                                        input_width = self.input_width, 
-                                        resize_height = self.crop_height, 
-                                        resize_width = self.crop_width, 
-                                        is_crop = False)
-
-      Depth_sample_images = get_depth_batch(batch_file = data, 
-                                        start_idx = idx*config.batch_size, 
-                                        end_idx = (idx+1)*config.batch_size, 
-                                        input_height = self.input_height, 
-                                        input_width = self.input_width, 
-                                        resize_height = self.crop_height, 
-                                        resize_width = self.crop_width, 
-                                        is_crop = False)
-
-      Semantic_sample_images = get_semantic_batch(batch_file = data, 
-                                        start_idx = idx*config.batch_size, 
-                                        end_idx = (idx+1)*config.batch_size, 
-                                        input_height = self.input_height, 
-                                        input_width = self.input_width, 
-                                        resize_height = self.crop_height, 
-                                        resize_width = self.crop_width, 
-                                        is_crop = False)
-      Depth_semantic_sample_images = np.concatenate((Depth_sample_images, Semantic_sample_images),axis = 3)
-
-      samples1, samples2, d_loss, g_loss = self.sess.run(
-          [self.sampler1, self.sampler2, self.d_loss, self.g_loss],
-          feed_dict = {self.real_rgb_images: RGB_sample_images, 
-                       self.real_depth_semantic_images: Depth_semantic_sample_images,
-                       self.real_depth_images: Depth_sample_images,
-                       self.real_semantic_images: Semantic_sample_images})
-      samples1 = color_depth(samples1)
-      samples2 = color_semantic(samples2)
-      save_images(samples1, [self.batch_size, 1],
-                  './{}/train_{:04d}_depth.png'.format(config.test_dir, idx))
-      save_images(samples2, [self.batch_size, 1],
-                  './{}/train_{:04d}_semantic.png'.format(config.test_dir, idx))
-      print("[Sample] d_loss: {:.8f}, g_loss: {:.8f}".format(d_loss, g_loss))
 
 
   def sample_model(self, data, sample_dir, epoch, idx, config):
@@ -229,10 +187,8 @@ class CoGAN(object):
                      self.real_depth_semantic_images: Depth_semantic_sample_images,
                      self.real_depth_images: Depth_sample_images,
                      self.real_semantic_images: Semantic_sample_images})
-    # samples1 = np.reshape(samples1,(self.batch_size,self.output_height, self.output_width))
-    # samples2 = np.reshape(samples2,(self.batch_size,self.output_height, self.output_width))
-    samples1 = color_depth(samples1)
-    samples2 = color_semantic(samples2)
+
+
     save_images(samples1, [self.batch_size, 1],
                 './{}/train_{:02d}_{:04d}_depth.png'.format(sample_dir, epoch, idx))
     save_images(samples2, [self.batch_size, 1],
@@ -363,9 +319,11 @@ class CoGAN(object):
         h3 = lrelu(self.d_bn3(conv2d(h2, self.df_dim*8, name='d_h3_conv')))
         # h3 is (16 x 16 x self.df_dim*8)
         h4 = lrelu(self.d_bn4(conv2d(h3, self.df_dim*8, name='d_h4_conv')))
-        # h4 is (8 x 8 x self.df_dim*8)
+        # h3 is (8 x 8 x self.df_dim*8)
         h5 = lrelu(self.d_bn5(conv2d(h4, self.df_dim*8, name='d_h5_conv')))
-        # h5 is (4 x 4 x self.df_dim*8)
+        # h3 is (4 x 4 x self.df_dim*8)
+        h6 = conv2d(h5, 1, d_h = 1, d_w = 1, name='d_h6_conv')
+        #h6 is (4*4*1)
         h6 = tf.reshape(h6,[self.batch_size,-1])
         return tf.nn.sigmoid(h6), h6
 
@@ -464,9 +422,9 @@ class CoGAN(object):
       self.d9_2, self.d9_2_w, self.d9_2_b = deconv2d(d8_2,[self.batch_size, s_h2, s_w2, 32], d_h=1, d_w=1,name='g_d9_2', with_w=True)
       d9_2 = tf.nn.relu(self.g_bn_d9_2(self.d9_2))
       # d9_2 is (128 x 128 x self.gf_dim/2)
-      self.d10_2, self.d10_2_w, self.d10_2_b = deconv2d(d9_2,[self.batch_size, s_h, s_w, 1], name='g_d10_2', with_w=True)
+      self.d10_2, self.d10_2_w, self.d10_2_b = deconv2d(d9_2,[self.batch_size, s_h, s_w, 40], name='g_d10_2', with_w=True)
       d10_2 = tf.nn.tanh(self.d10_2)
-      # d10_2 is (256 x 256 x 1) : semantic
+      # d10_2 is (256 x 256 x 40) : semantic
 
       return d10_1, d10_2
 
@@ -572,13 +530,13 @@ class CoGAN(object):
       d8_2 = tf.nn.relu(self.g_bn_d8_2(self.d8_2))
       # d8_2 is (128 x 128 x self.gf_dim)
       self.d9_2, self.d9_2_w, self.d9_2_b = deconv2d(d8_2,
-          [self.batch_size, s_h2, s_w2, 32], d_h=1, d_w=1, name='g_d9_2', with_w=True)
+          [self.batch_size, s_h2, s_w2, 32], d_h=1, d_w=1,name='g_d9_2', with_w=True)
       d9_2 = tf.nn.relu(self.g_bn_d9_2(self.d9_2))
       # d9_2 is (128 x 128 x self.gf_dim/2)
       self.d10_2, self.d10_2_w, self.d10_2_b = deconv2d(d9_2,
-          [self.batch_size, s_h, s_w, 1], name='g_d10_2', with_w=True)
+          [self.batch_size, s_h, s_w, 40], name='g_d10_2', with_w=True)
       d10_2 = tf.nn.tanh(self.d10_2)
-      # d10_2 is (256 x 256 x 1) : semantic
+      # d10_2 is (256 x 256 x 40) : semantic
 
       return d10_1, d10_2
       
