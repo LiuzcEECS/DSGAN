@@ -28,7 +28,7 @@ def get_image(image_path, input_height, input_width,
   return transform(image, input_height, input_width,
                    resize_height, resize_width, is_crop, is_grayscale = is_grayscale)
 
-def save_images(images, size, image_path, is_grayscale = True):
+def save_images(images, size, image_path, is_grayscale = False):
     return imsave(inverse_transform(images), size, image_path, is_grayscale)
     # return imsave(images, size, image_path, is_grayscale)
 

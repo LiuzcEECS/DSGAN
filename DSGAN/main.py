@@ -28,7 +28,7 @@ flags.DEFINE_string("dataset", "NYU_Depth", "The name of dataset [NYU_Depth]")
 flags.DEFINE_string("checkpoint_dir", "checkpoint", "Directory name to save the checkpoints [checkpoint]")
 flags.DEFINE_string("sample_dir", "samples", "Directory name to save the image samples [samples]")
 flags.DEFINE_string("test_dir", "test", "Directory name to save the test images [tests]")
-flags.DEFINE_boolean("is_train", False, "True for training, False for testing [False]")
+flags.DEFINE_boolean("is_train", True, "True for training, False for testing [False]")
 flags.DEFINE_boolean("is_crop", False, "True for training, False for testing [False]")
 FLAGS = flags.FLAGS
 

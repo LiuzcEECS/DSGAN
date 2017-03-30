@@ -146,6 +146,9 @@ class CoGAN(object):
     # print("Generator variable {}".format([v.op.name for v in self.g_vars]))
     self.d_vars = [var for var in t_vars if 'd_' in var.name]
     # print("Discriminator variable {}".format([v.op.name for v in self.d_vars]))
+    self.g1_vars = [var for var in t_vars if 'g1_' in var.name]
+    self.g2_vars = [var for var in t_vars if 'g2_' in var.name]
+    # print("Generator variable {}".format([v.op.name for v in self.g_private_vars]))
     self.saver = tf.train.Saver()
 
 
@@ -251,6 +254,20 @@ class CoGAN(object):
               .minimize(self.d_loss, var_list=self.d_vars)
     g_optim = tf.train.AdamOptimizer(config.learning_rate, beta1 = config.momentum1) \
               .minimize(self.g_loss, var_list=self.g_vars)
+
+    g_private_optim = tf.train.AdamOptimizer(config.learning_rate, beta1 = config.momentum1)
+    g1_grads_and_vars = g_private_optim.compute_gradients(self.g_loss, var_list = self.g1_vars)
+    g2_grads_and_vars = g_private_optim.compute_gradients(self.g_loss, var_list = self.g2_vars)
+    gate_var = tf.get_variable('gate_var', [1], initializer=tf.constant_initializer(0.5))
+    for i in xrange(6):
+      tmp1 = gate_var*g1_grads_and_vars[i][0] + (1-gate_var)*g2_grads_and_vars[i][0]
+      tmp2 = (1-gate_var)*g1_grads_and_vars[i][0] + gate_var*g2_grads_and_vars[i][0]
+      g1_grads_and_vars[i] = (tmp1,g1_grads_and_vars[i][1])
+      g2_grads_and_vars[i] = (tmp2,g2_grads_and_vars[i][1])
+
+    g1_apply = g_private_optim.apply_gradients(g1_grads_and_vars)
+    g2_apply = g_private_optim.apply_gradients(g2_grads_and_vars)
+    # gate_var_optim = g_private_optim.minimize(self.g_loss,var_list = [gate_var])
     
     tf.global_variables_initializer().run()
 
@@ -311,15 +328,15 @@ class CoGAN(object):
                       self.real_depth_semantic_images: Depth_semantic_batch_images})
         self.writer.add_summary(summary_str, counter)
 
-        # Update Generator twice  
-        _, summary_str = self.sess.run([g_optim, self.g_sum],
+        # Update Generator twice
+        _, _, _, summary_str = self.sess.run([g1_apply,g2_apply, g_optim, self.g_sum],
           feed_dict={ self.real_rgb_images: RGB_batch_images, 
                       self.real_depth_semantic_images: Depth_semantic_batch_images,
                       self.real_depth_images: Depth_batch_images,
                       self.real_semantic_images: Semantic_batch_images})
         self.writer.add_summary(summary_str, counter)
 
-        _, summary_str = self.sess.run([g_optim, self.g_sum],
+        _, _, _, summary_str = self.sess.run([g1_apply,g2_apply, g_optim, self.g_sum],
           feed_dict={self.real_rgb_images: RGB_batch_images, 
                      self.real_depth_semantic_images: Depth_semantic_batch_images,
                      self.real_depth_images: Depth_batch_images,
@@ -366,7 +383,7 @@ class CoGAN(object):
         # h4 is (8 x 8 x self.df_dim*8)
         h5 = lrelu(self.d_bn5(conv2d(h4, self.df_dim*8, name='d_h5_conv')))
         # h5 is (4 x 4 x self.df_dim*8)
-        h6 = tf.reshape(h6,[self.batch_size,-1])
+        h6 = tf.reshape(h5,[self.batch_size,-1])
         return tf.nn.sigmoid(h6), h6
 
       
@@ -447,24 +464,24 @@ class CoGAN(object):
       # d7 is (128 x 128 x self.gf_dim*1*2)
 
       #domain 1
-      self.d8_1, self.d8_1_w, self.d8_1_b = deconv2d(d7,[self.batch_size, s_h2, s_w2, self.gf_dim], d_h=1, d_w=1, name='g_d8_1', with_w=True)
+      self.d8_1, self.d8_1_w, self.d8_1_b = deconv2d(d7,[self.batch_size, s_h2, s_w2, self.gf_dim], d_h=1, d_w=1, name='g1_d8', with_w=True)
       d8_1 = tf.nn.relu(self.g_bn_d8_1(self.d8_1))
       # d8_1 is (128 x 128 x self.gf_dim)
-      self.d9_1, self.d9_1_w, self.d9_1_b = deconv2d(d8_1,[self.batch_size, s_h2, s_w2, 32], d_h=1, d_w=1,name='g_d9_1', with_w=True)
+      self.d9_1, self.d9_1_w, self.d9_1_b = deconv2d(d8_1,[self.batch_size, s_h2, s_w2, 32], d_h=1, d_w=1,name='g1_d9', with_w=True)
       d9_1 = tf.nn.relu(self.g_bn_d9_1(self.d9_1))
       # d9_1 is (128 x 128 x self.gf_dim/2)
-      self.d10_1, self.d10_1_w, self.d10_1_b = deconv2d(d9_1,[self.batch_size, s_h, s_w, 1], name='g_d10_1', with_w=True)
+      self.d10_1, self.d10_1_w, self.d10_1_b = deconv2d(d9_1,[self.batch_size, s_h, s_w, 1], name='g1_d10', with_w=True)
       d10_1 = tf.nn.tanh(self.d10_1)
       # d10_1 is (256 x 256 x 1) : depth
 
       #domain 2
-      self.d8_2, self.d8_2_w, self.d8_2_b = deconv2d(d7,[self.batch_size, s_h2, s_w2, self.gf_dim], d_h=1, d_w=1,name='g_d8_2', with_w=True)
+      self.d8_2, self.d8_2_w, self.d8_2_b = deconv2d(d7,[self.batch_size, s_h2, s_w2, self.gf_dim], d_h=1, d_w=1,name='g2_d8', with_w=True)
       d8_2 = tf.nn.relu(self.g_bn_d8_2(self.d8_2))
       # d8_2 is (128 x 128 x self.gf_dim)
-      self.d9_2, self.d9_2_w, self.d9_2_b = deconv2d(d8_2,[self.batch_size, s_h2, s_w2, 32], d_h=1, d_w=1,name='g_d9_2', with_w=True)
+      self.d9_2, self.d9_2_w, self.d9_2_b = deconv2d(d8_2,[self.batch_size, s_h2, s_w2, 32], d_h=1, d_w=1,name='g2_d9', with_w=True)
       d9_2 = tf.nn.relu(self.g_bn_d9_2(self.d9_2))
       # d9_2 is (128 x 128 x self.gf_dim/2)
-      self.d10_2, self.d10_2_w, self.d10_2_b = deconv2d(d9_2,[self.batch_size, s_h, s_w, 1], name='g_d10_2', with_w=True)
+      self.d10_2, self.d10_2_w, self.d10_2_b = deconv2d(d9_2,[self.batch_size, s_h, s_w, 1], name='g2_d10', with_w=True)
       d10_2 = tf.nn.tanh(self.d10_2)
       # d10_2 is (256 x 256 x 1) : semantic
 
@@ -554,29 +571,29 @@ class CoGAN(object):
 
       #domain 1
       self.d8_1, self.d8_1_w, self.d8_1_b = deconv2d(d7,
-          [self.batch_size, s_h2, s_w2, self.gf_dim], d_h=1, d_w=1,name='g_d8_1', with_w=True)
+          [self.batch_size, s_h2, s_w2, self.gf_dim], d_h=1, d_w=1,name='g1_d8', with_w=True)
       d8_1 = tf.nn.relu(self.g_bn_d8_1(self.d8_1))
       # d8_1 is (128 x 128 x self.gf_dim)
       self.d9_1, self.d9_1_w, self.d9_1_b = deconv2d(d8_1,
-          [self.batch_size, s_h2, s_w2, 32], d_h=1, d_w=1,name='g_d9_1', with_w=True)
+          [self.batch_size, s_h2, s_w2, 32], d_h=1, d_w=1,name='g1_d9', with_w=True)
       d9_1 = tf.nn.relu(self.g_bn_d9_1(self.d9_1))
       # d9_1 is (128 x 128 x self.gf_dim/2)
       self.d10_1, self.d10_1_w, self.d10_1_b = deconv2d(d9_1,
-          [self.batch_size, s_h, s_w, 1], name='g_d10_1', with_w=True)
+          [self.batch_size, s_h, s_w, 1], name='g1_d10', with_w=True)
       d10_1 = tf.nn.tanh(self.d10_1)
       # d10_1 is (256 x 256 x 1) : depth
 
       #domain 2
       self.d8_2, self.d8_2_w, self.d8_2_b = deconv2d(d7,
-          [self.batch_size, s_h2, s_w2, self.gf_dim], d_h=1, d_w=1,name='g_d8_2', with_w=True)
+          [self.batch_size, s_h2, s_w2, self.gf_dim], d_h=1, d_w=1,name='g2_d8', with_w=True)
       d8_2 = tf.nn.relu(self.g_bn_d8_2(self.d8_2))
       # d8_2 is (128 x 128 x self.gf_dim)
       self.d9_2, self.d9_2_w, self.d9_2_b = deconv2d(d8_2,
-          [self.batch_size, s_h2, s_w2, 32], d_h=1, d_w=1, name='g_d9_2', with_w=True)
+          [self.batch_size, s_h2, s_w2, 32], d_h=1, d_w=1, name='g2_d9', with_w=True)
       d9_2 = tf.nn.relu(self.g_bn_d9_2(self.d9_2))
       # d9_2 is (128 x 128 x self.gf_dim/2)
       self.d10_2, self.d10_2_w, self.d10_2_b = deconv2d(d9_2,
-          [self.batch_size, s_h, s_w, 1], name='g_d10_2', with_w=True)
+          [self.batch_size, s_h, s_w, 1], name='g2_d10', with_w=True)
       d10_2 = tf.nn.tanh(self.d10_2)
       # d10_2 is (256 x 256 x 1) : semantic
 
