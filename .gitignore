@@ -1,4 +1,5 @@
 *.pyc
 *.mat
 /DSGAN/checkpoint
+/DSGAN/samples
 /DSGAN/logs

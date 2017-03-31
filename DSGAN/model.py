@@ -192,7 +192,7 @@ class CoGAN(object):
 
     save_images(samples1, [self.batch_size, 1],
                 './{}/train_{:02d}_{:04d}_depth.png'.format(sample_dir, epoch, idx))
-    save_images(samples2, [self.batch_size, 1],
+    save_images(np.argmax(samples2, axis = 3), [self.batch_size, 1],
                 './{}/train_{:02d}_{:04d}_semantic.png'.format(sample_dir, epoch, idx))
     print("[Sample] d_loss: {:.8f}, g_loss: {:.8f}".format(d_loss, g_loss))
 
