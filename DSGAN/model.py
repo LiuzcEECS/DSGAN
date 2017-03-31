@@ -19,8 +19,8 @@ class CoGAN(object):
          output_height=256, output_width=256, output_c_dim=2,
          gf_dim=64, df_dim=64, dataset_name='default',
          checkpoint_dir=None, sample_dir=None, is_crop=True):
-    """
 
+    """
     Args:
       sess: TensorFlow session
       batch_size: The size of batch. Should be specified before training.
@@ -30,6 +30,7 @@ class CoGAN(object):
       df_dim: (optional) Dimension of discrim filters in first conv layer. [32]
       c_dim: (optional) Dimension of image color. For grayscale input, set to 1. [3]
     """
+
     self.sess = sess
     self.L1_lambda = L1_lambda
     self.batch_size = batch_size
@@ -134,8 +135,8 @@ class CoGAN(object):
     self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
         labels=tf.ones_like(self.D_)*soft_max_label, logits=self.D_logits_)) \
     + self.L1_lambda * ( tf.reduce_mean(tf.abs(self.real_depth_images - self.G1))) \
-    + tf.nn.sparse_softmax_cross_entropy_with_logits(labels = tf.reshape(tf.cast(self.real_semantic_images, tf.int32), [-1, self.crop_height * self.crop_width]),
-    logits = tf.reshape(self.G2, [-1,self.crop_height * self.crop_width, 40]))
+    + tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels = tf.reshape(tf.cast(self.real_semantic_images, tf.int32) - 1, [-1, self.crop_height * self.crop_width]),
+    logits = tf.reshape(self.G2, [-1,self.crop_height * self.crop_width, 40])))
 
     self.d_loss_real_sum = tf.summary.scalar("d_loss_real", self.d_loss_real)
     self.d_loss_fake_sum = tf.summary.scalar("d_loss_fake", self.d_loss_fake)
@@ -191,7 +192,7 @@ class CoGAN(object):
 
     save_images(samples1, [self.batch_size, 1],
                 './{}/train_{:02d}_{:04d}_depth.png'.format(sample_dir, epoch, idx))
-    save_images(samples2, [self.batch_size, 1],
+    save_images(np.argmax(samples2, axis = 3), [self.batch_size, 1],
                 './{}/train_{:02d}_{:04d}_semantic.png'.format(sample_dir, epoch, idx))
     print("[Sample] d_loss: {:.8f}, g_loss: {:.8f}".format(d_loss, g_loss))
 

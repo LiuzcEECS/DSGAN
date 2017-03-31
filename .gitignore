@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# MATLAB
+*.mat
+
 # Distribution / packaging
 .Python
 env/
@@ -92,3 +95,8 @@ ENV/
 
 # Rope project settings
 .ropeproject
+
+# Repo
+/DSGAN/checkpoint
+/DSGAN/samples
+/DSGAN/logs
