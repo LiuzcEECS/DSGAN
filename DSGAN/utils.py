@@ -21,68 +21,18 @@ pp = pprint.PrettyPrinter()
 
 get_stddev = lambda x, k_h, k_w: 1/math.sqrt(k_w*k_h*x.get_shape()[-1])
 
-def get_image(image_path, input_height, input_width,
-              resize_height=64, resize_width=64,
-              is_crop=True, is_grayscale=False):
-  image = imread(image_path, is_grayscale)
-  return transform(image, input_height, input_width,
-                   resize_height, resize_width, is_crop, is_grayscale = is_grayscale)
-
-def save_images(images, size, image_path, is_grayscale = True):
-    return imsave(inverse_transform(images), size, image_path, is_grayscale)
-    # return imsave(images, size, image_path, is_grayscale)
-
-def imread(path, is_grayscale = False):
-  if (is_grayscale):
-    return scipy.misc.imread(path, flatten = True).astype(np.float)
-  else:
-    return scipy.misc.imread(path).astype(np.float)
-
-def merge(images, size, is_grayscale):
-  h, w = images.shape[1], images.shape[2]
+def save_images(images, sample_dir, epoch, idx, label, is_grayscale = False):
   if is_grayscale == True:
-    img = np.zeros((h * size[0], w * size[1]))
-    for idx, image in enumerate(images):
-      i = idx % size[1]
-      j = idx // size[1]
-      image = image.reshape((h,w))
-      img[j*h:j*h+h, i*w:i*w+w] = image
+    img = np.zeros((images.shape[1], images.shape[2]))
+    for i in range(images.shape[0]):
+      img = images[i].reshape((images.shape[1],images.shape[2]))
+      scipy.misc.imsave('./{}/train_{:02d}_{:04d}_{:02d}_{}.png'.format(sample_dir, epoch, idx, i, label), img)
   else:
-    img = np.zeros((h * size[0], w * size[1], 3))
-    for idx, image in enumerate(images):
-      i = idx % size[1]
-      j = idx // size[1]
-      img[j*h:j*h+h, i*w:i*w+w, :] = image
-  return img
-
-def imsave(images, size, path, is_grayscale):
-  return scipy.misc.imsave(path, merge(images, size, is_grayscale))
-
-def center_crop(x, crop_h, crop_w,
-                resize_h=64, resize_w=64):
-  if crop_w is None:
-    crop_w = crop_h
-  h, w = x.shape[:2]
-  j = int(round((h - crop_h)/2.))
-  i = int(round((w - crop_w)/2.))
-  return scipy.misc.imresize(
-      x[j:j+crop_h, i:i+crop_w], [resize_h, resize_w])
-
-def transform(image, input_height=64, input_width=64, 
-              resize_height=64, resize_width=64, is_crop= False, is_grayscale=False):
-  if is_crop:
-    cropped_image = center_crop(
-      image, input_height, input_width, 
-      resize_height, resize_width)
-  else:
-    cropped_image = scipy.misc.imresize(image, [resize_height, resize_width])
-  if is_grayscale:
-    return np.array(cropped_image)/32767.5 - 1.
-  else:
-    return np.array(cropped_image)/127.5 - 1.
-
-def inverse_transform(images):
-  return (images+1.)/2.
+    img = np.zeros((images.shape[1], images.shape[2],3))
+    for i in range(images.shape[0]):
+      img = images[i]
+      scipy.misc.imsave('./{}/train_{:02d}_{:04d}_{:02d}_{}.png'.format(sample_dir, epoch, idx, i, label), img)
+    # return imsave(images, size, image_path, is_grayscale)
 
 
 '''
@@ -175,7 +125,7 @@ def divide_output(array):
     Visualization
 '''
 def depth_trans(img):
-    tar = np.exp(img*data_def().logdepths_std)
+    tar = np.exp(img*data_def().logdepths_std + data_def().logdepths_mean)
     maxx = np.max(tar)
     minn = np.min(tar)
 
@@ -227,3 +177,50 @@ def color_semantic(semantic_mat):
                 res[j][k] = color_dict[semantic_mat[j][k][0]]
 
     return res
+
+def depth_resize_trans(images,config):
+  images = np.exp(images*data_def().logdepths_std + data_def().logdepths_mean)
+  res = []
+  for i in range(images.shape[0]):
+    tem = (misc.imresize(images[i], (config.input_height, config.input_width), "nearest",'F'))
+    res.append(tem)
+  return np.array(res).astype(np.float)[:,:,:,None]
+
+def rel_error(ground_truth, predicted):
+  return np.mean(np.absolute(ground_truth - predicted) / ground_truth)
+
+def rel_sqr_error(ground_truth, predicted):
+  return np.mean(np.power(ground_truth - predicted,2) / ground_truth)
+
+def log10_error(ground_truth,predicted):
+  return np.mean(np.absolute(np.log10(ground_truth) - np.log10(predicted)))
+
+
+def rms_linear_error(ground_truth, predicted):
+  return np.sqrt(np.mean(np.power(ground_truth-predicted,2)))
+
+def rms_log_error(ground_truth,predicted):
+  return np.sqrt(np.mean(np.power(np.log(ground_truth) - np.log(predicted),2)))
+
+def thr_accuracy(ground_truth, predicted, threshold):
+  tmp = np.maximum(ground_truth / predicted , predicted / ground_truth)
+  flag = (tmp < threshold).astype(int)
+  return np.count_nonzero(flag) / predicted.size
+
+
+
+def depth_error(ground_truth, predicted, config):
+  ground_truth = depth_resize_trans(ground_truth,config)
+  predicted = depth_resize_trans(predicted,config)
+
+  rel = rel_error(ground_truth, predicted)
+  rel_sqr = rel_sqr_error(ground_truth, predicted)
+  log10 = log10_error(ground_truth,predicted)
+  rms_linear = rms_linear_error(ground_truth, predicted)
+  rms_log = rms_log_error(ground_truth,predicted)
+  thr_1 = thr_accuracy(ground_truth, predicted, 1.25)
+  thr_2 = thr_accuracy(ground_truth, predicted, 1.25*1.25)
+  thr_3 = thr_accuracy(ground_truth, predicted, 1.25*1.25*1.25)
+  print("[Sample] rel: {:.8f}, rel_sqr: {:.8f}, log10: {:.8f}".format(rel,rel_sqr,log10))
+  print("[Sample] rms_linear: {:.8f}, rms_log: {:.8f}".format(rms_linear,rms_log))
+  print("[Sample] thr_1: {:.8f}, thr_2: {:.8f}, thr_3: {:.8f}".format(thr_1,thr_2,thr_3))
