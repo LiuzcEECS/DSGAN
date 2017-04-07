@@ -55,6 +55,7 @@ class DSGAN(object):
     self.d_bn3 = batch_norm(name='d_bn3')
     self.d_bn4 = batch_norm(name='d_bn4')
     self.d_bn5 = batch_norm(name='d_bn5')
+    self.d_bn6 = batch_norm(name='d_bn6')
 
     self.g_bn_e2 = batch_norm(name='g_bn_e2')
     self.g_bn_e3 = batch_norm(name='g_bn_e3')
@@ -128,8 +129,8 @@ class DSGAN(object):
     # self.g_sum = tf.summary.image("g", self.G)
 
 
-    soft_max_label = tf.random_uniform(shape = [1], minval = 0.75, maxval = 1)
-    soft_min_label = tf.random_uniform(shape = [1], minval = 0, maxval = 0.25)
+    soft_max_label = tf.random_uniform(shape = [1], minval = 0.8, maxval = 1)
+    soft_min_label = tf.random_uniform(shape = [1], minval = 0, maxval = 0.2)
 
     #discriminator loss
     self.d_loss_real = tf.reduce_mean(
@@ -146,9 +147,9 @@ class DSGAN(object):
     self.semantic_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels = tf.reshape(tf.cast(self.real_semantic_images, tf.int32) - 1, [-1, self.crop_height * self.crop_width]),
     logits = tf.reshape(self.G2, [-1,self.crop_height * self.crop_width, 40])))
     
-    self.g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-        labels=tf.ones_like(self.D_)*soft_max_label, logits=self.D_logits_)) \
-    + self.depth_lambda * self.recon_loss + self.semantic_lambda * self.semantic_loss
+    self.g_gan_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
+        labels=tf.ones_like(self.D_)*soft_max_label, logits=self.D_logits_))
+    self.g_loss =  self.g_gan_loss + self.depth_lambda * self.recon_loss + self.semantic_lambda * self.semantic_loss
 
     self.d_loss_real_sum = tf.summary.scalar("d_loss_real", self.d_loss_real)
     self.d_loss_fake_sum = tf.summary.scalar("d_loss_fake", self.d_loss_fake)
@@ -165,7 +166,7 @@ class DSGAN(object):
 
 
 
-  def sample_model(self, data, epoch, idx, config):
+  def sample_model(self, data, epoch, idx, sample_dir, config):
     RGB_sample_images = get_RGB_batch(batch_file = data, 
                                       start_idx = idx*config.batch_size, 
                                       end_idx = (idx+1)*config.batch_size, 
@@ -202,13 +203,17 @@ class DSGAN(object):
                      self.real_semantic_images: Semantic_sample_images})
 
     #compute error
-    depth_error(Depth_sample_images, samples1, config)
+    ground_truth = Depth_sample_images.reshape((Depth_sample_images.shape[0], Depth_sample_images.shape[1], Depth_sample_images.shape[2]))
+    predicted = samples1.reshape((samples1.shape[0], samples1.shape[1], samples1.shape[2]))
+    # print "ground_truth", ground_truth.shape
+    # print "predicted", predicted.shape
+    depth_error(ground_truth, predicted, config)
     #save images
     samples1 = color_depth(samples1)
     samples2 = np.argmax(samples2, axis = 3)
     samples2 = color_semantic(samples2.reshape((samples2.shape[0],samples2.shape[1],samples2.shape[2],1)))
-    save_images(samples1, config.sample_dir, epoch, idx, 'depth')
-    save_images(samples2, config.sample_dir, epoch, idx, 'semantic')
+    save_images(samples1, sample_dir, epoch, idx, 'depth')
+    save_images(samples2, sample_dir, epoch, idx, 'semantic')
     print("[Sample] d_loss: {:.8f}, g_loss: {:.8f}".format(d_loss, g_loss))
     
 
@@ -242,7 +247,7 @@ class DSGAN(object):
       print(" [!] Load failed...")
 
     #compute batch idx
-    batch_idxs = len(train_idxs) // config.batch_size
+    batch_idxs = 1440 // config.batch_size
     for epoch in xrange(config.epoch):
       for idx in xrange(0, batch_idxs):
 
@@ -304,45 +309,51 @@ class DSGAN(object):
                                  self.real_depth_semantic_images: Depth_semantic_batch_images,
                                  self.real_depth_images: Depth_batch_images,
                                  self.real_semantic_images: Semantic_batch_images})
+        errG_GAN = self.g_gan_loss.eval({self.real_rgb_images: RGB_batch_images, 
+                                 self.real_depth_semantic_images: Depth_semantic_batch_images,
+                                 self.real_depth_images: Depth_batch_images,
+                                 self.real_semantic_images: Semantic_batch_images})
 
         #print loss
         counter += 1
-        print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" \
+        print("Epoch: [%2d] [%4d/%4d] time: %4.4f, d_loss: %.8f, g_gan_loss: %.8f, g_loss: %.8f" \
           % (epoch, idx, batch_idxs,
-            time.time() - start_time, errD, errG))
+            time.time() - start_time, errD, errG_GAN, errG))
 
         #print test images
         if np.mod(counter, 100) == 1:
-          self.sample_model(data, epoch, idx, config)
+          self.sample_model(data, epoch, idx, config.sample_dir, config)
 
         if np.mod(counter, 500) == 2:
           self.save(config.checkpoint_dir, counter)
 
 
   def discriminator(self, image, reuse = False, name = 'D'):
-    # image is 256 x 256 x output_c_dim
+    
     with tf.variable_scope("D") as scope:
         if reuse:
             tf.get_variable_scope().reuse_variables()
         else:
             assert tf.get_variable_scope().reuse == False
-
+        # image is 256 x 256 x output_c_dim
         h0 = lrelu(conv2d(image, self.df_dim, name='d_h0_conv'))
         # h0 is (128 x 128 x self.df_dim)
         h1 = lrelu(self.d_bn1(conv2d(h0, self.df_dim*2, name='d_h1_conv')))
         # h1 is (64 x 64 x self.df_dim*2)
         h2 = lrelu(self.d_bn2(conv2d(h1, self.df_dim*4, name='d_h2_conv')))
-        # h2 is (32x 32 x self.df_dim*4)
+        # h2 is (32 x 32 x self.df_dim*4)
         h3 = lrelu(self.d_bn3(conv2d(h2, self.df_dim*8, name='d_h3_conv')))
         # h3 is (16 x 16 x self.df_dim*8)
         h4 = lrelu(self.d_bn4(conv2d(h3, self.df_dim*8, name='d_h4_conv')))
-        # h3 is (8 x 8 x self.df_dim*8)
+        # h4 is (8 x 8 x self.df_dim*8)
         h5 = lrelu(self.d_bn5(conv2d(h4, self.df_dim*8, name='d_h5_conv')))
-        # h3 is (4 x 4 x self.df_dim*8)
-        h6 = conv2d(h5, 1, d_h = 1, d_w = 1, name='d_h6_conv')
-        #h6 is (4*4*1)
-        h6 = tf.reshape(h6,[self.batch_size,-1])
-        return tf.nn.sigmoid(h6), h6
+        # h5 is (4 x 4 x self.df_dim*8)
+        h6 = lrelu(self.d_bn6(conv2d(h5, self.df_dim*8, name='d_h6_conv')))
+        # h5 is (2 x 2 x self.df_dim*8)
+        h7 = conv2d(h6, self.df_dim*8, name='d_h7_conv')
+        # h7 is (1 x 1 x self.df_dim*8)
+        h7 = tf.reshape(h7,[self.batch_size,-1])
+        return tf.nn.sigmoid(h7), h7
 
       
 

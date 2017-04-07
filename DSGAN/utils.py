@@ -182,6 +182,7 @@ def depth_resize_trans(images,config):
   images = np.exp(images*data_def().logdepths_std + data_def().logdepths_mean)
   res = []
   for i in range(images.shape[0]):
+    # print images[i].shape
     tem = (misc.imresize(images[i], (config.input_height, config.input_width), "nearest",'F'))
     res.append(tem)
   return np.array(res).astype(np.float)[:,:,:,None]

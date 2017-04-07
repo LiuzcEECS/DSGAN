@@ -10,17 +10,17 @@ import tensorflow as tf
 flags = tf.app.flags
 flags.DEFINE_integer("epoch", 200, "Epoch to train [200]")
 flags.DEFINE_float("learning_rate", 0.0002, "Learning rate of for adam [0.0002]")
-flags.DEFINE_integer("depth_lambda", 50, "parameter for depth loss [50]")
-flags.DEFINE_integer("semantic_lambda", 50, "parameter for semantic loss [50]")
+flags.DEFINE_integer("depth_lambda", 100, "parameter for depth loss [100]")
+flags.DEFINE_integer("semantic_lambda", 100, "parameter for semantic loss [100]")
 flags.DEFINE_float("momentum1", 0.5, "1st momentum parameter [0.5]")
 flags.DEFINE_integer("train_size", np.inf, "The size of train images [np.inf]")
 flags.DEFINE_integer("batch_size", 4, "The size of batch images [4]")
 flags.DEFINE_integer("input_height", 480, "The size of the input images [480]")
 flags.DEFINE_integer("input_width", 640, "The size of the input images [640]")
 flags.DEFINE_integer("crop_height", 256, "The size of the input images after cropping [256]")
-flags.DEFINE_integer("crop_width", None, "The size of the input images after cropping. If None, same value as output_height [None]")
+flags.DEFINE_integer("crop_width", 256, "The size of the input images after cropping. If None, same value as output_height [None]")
 flags.DEFINE_integer("output_height", 256, "The size of the output images to produce [256]")
-flags.DEFINE_integer("output_width", None, "The size of the output images to produce. If None, same value as output_height [None]")
+flags.DEFINE_integer("output_width", 256, "The size of the output images to produce. If None, same value as output_height [None]")
 flags.DEFINE_integer("input_c_dim", 3, "Channels of input images [3]")
 flags.DEFINE_integer("output_c_dim", 2, "Channels of output images [2]")
 flags.DEFINE_integer("df_dim", 64, "Channels of first discriminator conv layer [64]")
@@ -81,9 +81,9 @@ def main(_):
       data = load_mat('../nyu_depth_v2_labeled.mat')
       train_test = load_mat('../splits.mat')
       test_idxs = [int(x-1) for x in train_test["testNdxs"]]
-      FLAGS.batch_size = 1
+      FLAGS.batch_size = 4
       for idx in test_idxs:
-        dsgan.sample_model(data, 1, idx, FLAGS)
+        dsgan.sample_model(data, 1, idx, FLAGS.test_dir, FLAGS)
 
 if __name__ == '__main__':
   tf.app.run()
