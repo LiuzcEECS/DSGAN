@@ -225,3 +225,54 @@ def depth_error(ground_truth, predicted, config):
   print("[Sample] rel: {:.8f}, rel_sqr: {:.8f}, log10: {:.8f}".format(rel,rel_sqr,log10))
   print("[Sample] rms_linear: {:.8f}, rms_log: {:.8f}".format(rms_linear,rms_log))
   print("[Sample] thr_1: {:.8f}, thr_2: {:.8f}, thr_3: {:.8f}".format(thr_1,thr_2,thr_3))
+
+def semantic_pixel_acc(labels, results):
+    cnt = 0.0
+    for i in range(labels.shape[0]):
+        for j in range(labels.shape[1]):
+            for k in range(labels.shape[2]):
+                if labels[i][j][k][0] == results[i][j][k][0]:
+                    cnt += 1.0
+    cnt = cnt / labels.shape[0] / labels.shape[1] / labels.shape[2]
+    return cnt
+
+def semantic_class_acc(labels, results): # or mean accuracy ?
+    cnt_class = np.zeros((41), dtype = np.float32)
+    cnt_cor = np.zeros((41), dtype = np.float32)
+
+    for i in range(labels.shape[0]):
+        for j in range(labels.shape[1]):
+            for k in range(labels.shape[2]):
+                if labels[i][j][k][0] == results[i][j][k][0]:
+                    cnt_cor[results[i][j][k][0]] += 1
+                cnt_class[labels[i][j][k][0]] += 1
+    s = 0.0
+    for i in range(1,41):
+        if cnt_cor[i] == 0:
+            continue
+        s += float(cnt_cor[i] / cnt_class[i])
+    s = s / 40.0
+
+    return s
+
+def semantic_mean_IoU_acc(labels, results):
+    cnt_u = np.zeros((41), dtype = np.float32)
+    cnt_cor = np.zeros((41), dtype = np.float32)
+
+    for i in range(labels.shape[0]):
+        for j in range(labels.shape[1]):
+            for k in range(labels.shape[2]):
+                if labels[i][j][k][0] == results[i][j][k][0]:
+                    cnt_cor[results[i][j][k][0]] += 1
+                cnt_u[labels[i][j][k][0]] += 1
+                cnt_u[results[i][j][k][0]] += 1
+    s = 0.0
+    for i in range(1,41):
+        if cnt_cor[i] == 0:
+            continue
+        s += float(cnt_cor[i] / (cnt_u[i] - cnt_cor[i]))
+
+    s = s / 40.0
+    return s
+
+
